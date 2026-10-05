@@ -3,6 +3,8 @@ TV_IP="${TV_IP:-}"               # leave empty to find the TV via mDNS
 TV_PORT="${TV_PORT:-5555}"       # only used with TV_IP; mDNS reports the port
 TV_NAME="${TV_NAME:-}"           # with mDNS, pick the TV whose name contains this
 INTERVAL="${INTERVAL:-900}"      # flush every 15 min while the TV sleeps
+POLL="${POLL:-30}"               # how often to check the TV's power state
+WAKE_DELAY="${WAKE_DELAY:-10}"   # wait this long after the TV turns on before the final flush
 RETRY="${RETRY:-60}"             # wait this long after a failure
 
 log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
@@ -11,6 +13,17 @@ log() { echo "$(date '+%Y-%m-%d %H:%M:%S') $*"; }
 nap() { sleep "$1" & wait $!; }
 
 trap 'log "stopping"; kill $! 2>/dev/null; exit 0' TERM INT
+
+# Standby states; anything else (Awake, Dreaming) means the screen is on.
+is_asleep() { [ "$1" = "Asleep" ] || [ "$1" = "Dozing" ]; }
+
+flush() {
+  timeout 15 adb -s "$TV" shell settings put global hdmi_control_enabled 0
+  sleep 3
+  timeout 15 adb -s "$TV" shell settings put global hdmi_control_enabled 1
+  last_flush=$SECONDS
+  log "$1 - flushed CEC queue"
+}
 
 # Sets TV to ip:port of the first ADB device found via mDNS (matching TV_NAME if set).
 discover() {
@@ -35,11 +48,15 @@ discover() {
 
 if [ -n "$TV_IP" ]; then
   TV="$TV_IP:$TV_PORT"
-  log "starting: TV=$TV interval=${INTERVAL}s retry=${RETRY}s"
+  log "starting: TV=$TV interval=${INTERVAL}s poll=${POLL}s retry=${RETRY}s"
 else
   TV=""
-  log "starting: TV via mDNS${TV_NAME:+ (name contains '$TV_NAME')} interval=${INTERVAL}s retry=${RETRY}s"
+  log "starting: TV via mDNS${TV_NAME:+ (name contains '$TV_NAME')} interval=${INTERVAL}s poll=${POLL}s retry=${RETRY}s"
 fi
+
+last_flush=-$INTERVAL
+prev=""
+last_connect=""
 
 while true; do
   if [ -z "$TV" ] && ! discover; then
@@ -47,7 +64,11 @@ while true; do
     continue
   fi
 
-  log "$(timeout 15 adb connect "$TV" 2>&1)"
+  # Only log the connect result when it changes, so polling doesn't spam the log.
+  connect=$(timeout 15 adb connect "$TV" 2>&1)
+  [ "$connect" != "$last_connect" ] && log "$connect"
+  last_connect="$connect"
+
   state=$(timeout 15 adb -s "$TV" shell dumpsys power 2>&1 | grep -o 'mWakefulness=[A-Za-z]*' | cut -d= -f2)
 
   if [ -z "$state" ]; then
@@ -56,16 +77,23 @@ while true; do
     [ "$status" = "offline" ] && adb disconnect "$TV" >/dev/null 2>&1
     # The TV may have a new IP; look it up again unless it's waiting for key approval.
     [ -z "$TV_IP" ] && [ "$status" != "unauthorized" ] && TV=""
+    last_connect=""
     nap "$RETRY"
     continue
   fi
 
-  if [ "$state" = "Asleep" ]; then
-    timeout 15 adb -s "$TV" shell settings put global hdmi_control_enabled 0
-    sleep 3
-    timeout 15 adb -s "$TV" shell settings put global hdmi_control_enabled 1
-    log "TV asleep - flushed CEC queue"
+  [ "$state" != "$prev" ] && log "TV state: ${prev:-unknown} -> $state"
+
+  if is_asleep "$state"; then
+    if (( SECONDS - last_flush >= INTERVAL )); then
+      flush "TV asleep"
+    fi
+  elif is_asleep "$prev"; then
+    log "TV turned on - final flush in ${WAKE_DELAY}s"
+    nap "$WAKE_DELAY"
+    flush "TV turned on"
   fi
 
-  nap "$INTERVAL"
+  prev="$state"
+  nap "$POLL"
 done

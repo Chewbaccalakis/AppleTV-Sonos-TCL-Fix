@@ -13,6 +13,8 @@ ENV TV_PORT=5555
 ENV TV_IP=""
 ENV TV_NAME=""
 ENV INTERVAL=900
+ENV POLL=30
+ENV WAKE_DELAY=10
 ENV RETRY=60
 
 ENTRYPOINT ["/usr/bin/tini", "--", "/app/flush-cec.sh"]

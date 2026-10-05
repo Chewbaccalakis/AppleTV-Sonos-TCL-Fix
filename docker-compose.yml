@@ -8,7 +8,9 @@ services:
       TV_IP: ""             # leave empty to find the TV via mDNS, or set it to skip discovery
       TV_NAME: ""           # optional: with mDNS, pick the TV whose name contains this
       TV_PORT: 5555         # ADB port, only used with TV_IP
-      INTERVAL: 900         # seconds between checks (15 min)
+      INTERVAL: 900         # seconds between flushes while the TV is asleep (15 min)
+      POLL: 30              # seconds between power-state checks
+      WAKE_DELAY: 10        # seconds after the TV turns on before the final flush
       RETRY: 60             # seconds to wait after a failed connection
       TZ: Etc/UTC           # log timezone, e.g. America/Los_Angeles
     volumes:
