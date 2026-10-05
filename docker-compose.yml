@@ -3,9 +3,11 @@ services:
     image: ghcr.io/chewbaccalakis/appletv-sonos-tcl-fix:latest
     container_name: flush-cec
     restart: unless-stopped
+    network_mode: host      # needed for mDNS discovery
     environment:
-      TV_IP: 192.168.1.50   # required: your TV's IP address
-      TV_PORT: 5555         # ADB network debugging port
+      TV_IP: ""             # leave empty to find the TV via mDNS, or set it to skip discovery
+      TV_NAME: ""           # optional: with mDNS, pick the TV whose name contains this
+      TV_PORT: 5555         # ADB port, only used with TV_IP
       INTERVAL: 900         # seconds between checks (15 min)
       RETRY: 60             # seconds to wait after a failed connection
       TZ: Etc/UTC           # log timezone, e.g. America/Los_Angeles
